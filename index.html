@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Girasol Generativo</title>
+<style>
+  :root {
+    --bg-top: #4a86c8;
+    --bg-mid: #2f5f9e;
+    --bg-bottom: #14294f;
+    --text: #fdf6e3;
+    --accent: #f39c12;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg-top: #1c3a63;
+      --bg-mid: #122a4c;
+      --bg-bottom: #081426;
+      --text: #f0e6d2;
+      --accent: #f39c12;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg-top: #1c3a63;
+    --bg-mid: #122a4c;
+    --bg-bottom: #081426;
+    --text: #f0e6d2;
+    --accent: #f39c12;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); height: 100%; }
+  * { margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    min-height: 100dvh;
+    background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-mid) 55%, var(--bg-bottom) 100%);
+    color: var(--text);
+    font-family: 'Georgia', 'Times New Roman', serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    touch-action: none;
+    padding: 0.8rem;
+    gap: 0.5rem;
+  }
+  #wrap {
+    position: relative;
+    width: min(88vw, 460px);
+    height: min(60dvh, 657px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 1 auto;
+  }
+  .gold-msg {
+    font-size: clamp(0.85rem, 3.4vw, 1.05rem);
+    font-style: italic;
+    letter-spacing: 0.03em;
+    text-align: center;
+    color: #f2c04a;
+    text-shadow: 0 1px 8px rgba(0,0,0,0.35), 0 0 18px rgba(242,192,74,0.25);
+    flex: 0 0 auto;
+    padding: 0 1rem;
+  }
+  canvas {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    aspect-ratio: 7 / 10;
+    touch-action: none;
+    filter: drop-shadow(0 10px 30px rgba(0,0,0,0.25));
+  }
+  h1 {
+    font-size: clamp(0.95rem, 4vw, 1.35rem);
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    text-align: center;
+    color: var(--text);
+    opacity: 0.9;
+    flex: 0 0 auto;
+    text-shadow: 0 1px 6px rgba(0,0,0,0.3);
+  }
+  p.hint {
+    font-size: clamp(0.7rem, 2.6vw, 0.8rem);
+    opacity: 0.65;
+    text-align: center;
+    font-style: italic;
+    flex: 0 0 auto;
+    padding: 0 1rem;
+  }
+
+  #soundToggle {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 14px);
+    right: 14px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(242,192,74,0.4);
+    background: rgba(0,0,0,0.18);
+    backdrop-filter: blur(4px);
+    color: #f2c04a;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    transition: transform 0.15s ease, background 0.2s ease;
+  }
+  #soundToggle:active { transform: scale(0.92); }
+  #cornerNote {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+    left: 10px;
+    max-width: min(72vw, 280px);
+    font-size: 0.65rem;
+    line-height: 1.35;
+    font-style: italic;
+    color: rgba(253, 246, 227, 0.55);
+    text-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    z-index: 10;
+  }
+</style>
+</head>
+<body>
+  <audio id="song" src="sunflower.mp3" preload="auto" loop></audio>
+  <button id="soundToggle" aria-label="Reproducir o pausar la musica" type="button">&#9835;</button>
+  <p id="cornerNote">cómo el amor y la presencia de alguien especial pueden ayudarte a superar la ansiedad y los bajones emocionales &mdash; sé que la canción aborda mucho más, pero entender la secuencia de Fibonacci para lograr esta flor casi me mata la inspiración.</p>
+  <div id="wrap">
+    <canvas id="c" width="700" height="1000"></canvas>
+  </div>
+  <p class="gold-msg">hay personas que te devuelven la calma solo con estar cerca &#127803;</p>
+
+<script>
+(function () {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const cx = W / 2, cy = H * 0.36; // flower center, upper area, leaving room for stem
+
+  const isDark = () => {
+    const forced = document.documentElement.getAttribute('data-theme');
+    if (forced === 'dark') return true;
+    if (forced === 'light') return false;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  };
+
+  // deterministic pseudo-random, stable across frames
+  function hash(i) {
+    const x = Math.sin(i * 12.9898) * 43758.5453;
+    return x - Math.floor(x);
+  }
+
+  // Pointer state, smoothed
+  let pointer = { x: cx, y: cy, active: false };
+  let smooth = { x: 0, y: 0 };
+
+  function toCanvasCoords(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const scaleY = H / rect.height;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  }
+
+  window.addEventListener('mousemove', (e) => {
+    const p = toCanvasCoords(e.clientX, e.clientY);
+    pointer.x = p.x; pointer.y = p.y; pointer.active = true;
+  });
+  window.addEventListener('mouseleave', () => { pointer.active = false; });
+  window.addEventListener('touchmove', (e) => {
+    if (e.touches.length) {
+      const t = e.touches[0];
+      const p = toCanvasCoords(t.clientX, t.clientY);
+      pointer.x = p.x; pointer.y = p.y; pointer.active = true;
+    }
+  }, { passive: true });
+  window.addEventListener('touchend', () => { pointer.active = false; });
+
+  // --- Petal geometry ---
+  const PETAL_LAYERS = 3;
+  const PETALS_PER_LAYER = 13; // Fibonacci number
+  const petalLen = W * 0.30;
+  const petalWidth = W * 0.08;
+
+  // Natural, slightly asymmetric petal with a pointed, gently curled tip,
+  // wavy ruffled edges, branching veins and light-direction shading.
+  const LIGHT_ANGLE = -0.9; // light source direction, upper-left-ish, in radians
+
+  function drawPetal(len, width, dark, seedIndex) {
+    const jitterW = 0.85 + hash(seedIndex) * 0.3;
+    const jitterL = 0.94 + hash(seedIndex + 91) * 0.12;
+    const curl = (hash(seedIndex + 7) - 0.5) * width * 0.22;
+    const hueShift = hash(seedIndex + 3) * 10 - 5;
+    const rippleR = hash(seedIndex + 17) * Math.PI * 2;
+    const rippleL = hash(seedIndex + 41) * Math.PI * 2;
+    const tipCurlAmt = 0.5 + hash(seedIndex + 59) * 0.8;
+
+    const L = len * jitterL;
+    const Wd = width * jitterW;
+
+    function petalPath() {
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      // right edge: base bulge -> two gentle ruffle waves -> narrows toward tip
+      ctx.bezierCurveTo(
+        Wd * 0.62, -L * 0.12,
+        Wd * (0.5 + Math.sin(rippleR) * 0.05) + curl * 0.3, -L * 0.4,
+        Wd * 0.42, -L * 0.62
+      );
+      ctx.bezierCurveTo(
+        Wd * (0.34 + Math.sin(rippleR + 1.7) * 0.04), -L * 0.78,
+        Wd * 0.16, -L * 0.9,
+        Wd * 0.055, -L * 0.965
+      );
+      // pointed, slightly curled tip
+      ctx.quadraticCurveTo(Wd * 0.02 * tipCurlAmt, -L * 1.015, 0, -L * 1.02);
+      ctx.quadraticCurveTo(-Wd * 0.02 * tipCurlAmt, -L * 1.015, -Wd * 0.055, -L * 0.965);
+      // left edge back down, mirrored ripple with its own phase
+      ctx.bezierCurveTo(
+        -Wd * 0.16, -L * 0.9,
+        -Wd * (0.34 + Math.sin(rippleL + 1.7) * 0.04), -L * 0.78,
+        -Wd * 0.42, -L * 0.62
+      );
+      ctx.bezierCurveTo(
+        -Wd * (0.5 + Math.sin(rippleL) * 0.05) + curl * 0.3, -L * 0.4,
+        -Wd * 0.62, -L * 0.12,
+        0, 0
+      );
+      ctx.closePath();
+    }
+
+    // Drop shadow beneath the petal for depth
+    ctx.save();
+    ctx.translate(1.6, 2.6);
+    petalPath();
+    ctx.fillStyle = dark ? 'rgba(0,0,0,0.30)' : 'rgba(90,50,10,0.14)';
+    ctx.fill();
+    ctx.restore();
+
+    // Base fill: richer 4-stop gradient, base slightly muted/warm, tip pale and bright
+    const grad = ctx.createLinearGradient(0, 0, 0, -L);
+    if (dark) {
+      grad.addColorStop(0, `hsla(${14 + hueShift}, 70%, 34%, 0.94)`);
+      grad.addColorStop(0.3, `hsla(${22 + hueShift}, 80%, 44%, 0.95)`);
+      grad.addColorStop(0.65, `hsla(${36 + hueShift}, 90%, 55%, 0.97)`);
+      grad.addColorStop(1, `hsla(${48 + hueShift}, 95%, 74%, 0.98)`);
+    } else {
+      grad.addColorStop(0, `hsla(${16 + hueShift}, 68%, 42%, 0.97)`);
+      grad.addColorStop(0.3, `hsla(${25 + hueShift}, 82%, 50%, 0.98)`);
+      grad.addColorStop(0.65, `hsla(${40 + hueShift}, 93%, 58%, 0.99)`);
+      grad.addColorStop(1, `hsla(${52 + hueShift}, 97%, 83%, 1)`);
+    }
+    petalPath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Ambient occlusion where petal meets the disc (soft dark pool at base)
+    ctx.save();
+    petalPath();
+    ctx.clip();
+    const aoGrad = ctx.createRadialGradient(0, -L * 0.02, 0, 0, -L * 0.02, Wd * 0.7);
+    aoGrad.addColorStop(0, dark ? 'rgba(40,18,4,0.45)' : 'rgba(70,35,8,0.28)');
+    aoGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = aoGrad;
+    ctx.fillRect(-Wd, -L * 0.3, Wd * 2, L * 0.35);
+
+    // Directional shading: shadow on the side away from the light
+    const shadeSide = Math.cos(LIGHT_ANGLE) > 0 ? 1 : -1;
+    const shadeGrad = ctx.createLinearGradient(-shadeSide * Wd * 0.6, 0, shadeSide * Wd * 0.6, 0);
+    shadeGrad.addColorStop(0, dark ? 'rgba(0,0,0,0.22)' : 'rgba(60,30,5,0.16)');
+    shadeGrad.addColorStop(0.55, 'rgba(0,0,0,0)');
+    ctx.fillStyle = shadeGrad;
+    ctx.fillRect(-Wd, -L * 1.05, Wd * 2, L * 1.1);
+    ctx.restore();
+
+    // Fold crease slightly off-center for a natural, non-flat look
+    ctx.save();
+    petalPath();
+    ctx.clip();
+    ctx.strokeStyle = dark ? 'rgba(90,45,8,0.20)' : 'rgba(140,80,12,0.16)';
+    ctx.lineWidth = Wd * 0.05;
+    ctx.beginPath();
+    ctx.moveTo(Wd * 0.08, -L * 0.05);
+    ctx.quadraticCurveTo(Wd * 0.16 + curl * 0.2, -L * 0.5, Wd * 0.02, -L * 0.93);
+    ctx.stroke();
+    ctx.restore();
+
+    // Glossy highlight sheen (main) along the lit edge for volume
+    ctx.save();
+    const lit = -shadeSide;
+    ctx.beginPath();
+    ctx.moveTo(lit * Wd * 0.02, -L * 0.06);
+    ctx.quadraticCurveTo(lit * Wd * 0.34, -L * 0.45, lit * Wd * 0.03, -L * 0.94);
+    ctx.quadraticCurveTo(lit * Wd * 0.13, -L * 0.5, lit * Wd * 0.02, -L * 0.06);
+    ctx.closePath();
+    ctx.fillStyle = dark ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.36)';
+    ctx.fill();
+
+    // secondary small highlight near the base for a wet/glossy pop
+    ctx.beginPath();
+    ctx.ellipse(lit * Wd * 0.18, -L * 0.18, Wd * 0.09, L * 0.06, 0, 0, Math.PI * 2);
+    ctx.fillStyle = dark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.4)';
+    ctx.fill();
+    ctx.restore();
+
+    // Midrib
+    ctx.strokeStyle = dark ? 'rgba(120,60,10,0.4)' : 'rgba(150,90,10,0.32)';
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(0, -L * 0.05);
+    ctx.quadraticCurveTo(curl * 0.2, -L * 0.5, 0, -L * 0.96);
+    ctx.stroke();
+
+    // Branching secondary veins off the midrib (more organic than a straight fan)
+    ctx.strokeStyle = dark ? 'rgba(110,55,10,0.28)' : 'rgba(150,95,15,0.24)';
+    ctx.lineWidth = 0.55;
+    const branchCount = 4;
+    for (let b = 1; b <= branchCount; b++) {
+      const along = (b / (branchCount + 1)) * 0.82 + 0.08;
+      const originY = -L * along;
+      const originX = curl * 0.2 * along;
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(originX, originY);
+        ctx.quadraticCurveTo(
+          originX + side * Wd * 0.28 * (1 - along * 0.5),
+          originY - L * 0.05,
+          originX + side * Wd * 0.14 * (1 - along * 0.6),
+          originY - L * 0.12
+        );
+        ctx.stroke();
+      }
+    }
+
+    // Tiny texture specks for organic imperfection
+    for (let s = 0; s < 3; s++) {
+      const sh = hash(seedIndex + 200 + s);
+      const sx = (sh - 0.5) * Wd * 0.6;
+      const sy = -L * (0.25 + hash(seedIndex + 300 + s) * 0.6);
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, Wd * 0.02, Wd * 0.035, 0, 0, Math.PI * 2);
+      ctx.fillStyle = dark ? 'rgba(255,220,150,0.10)' : 'rgba(150,90,15,0.10)';
+      ctx.fill();
+    }
+
+    // Delicate rim outline for edge definition
+    petalPath();
+    ctx.strokeStyle = dark ? 'rgba(255,200,100,0.20)' : 'rgba(140,80,10,0.22)';
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+  }
+
+  // --- Seed disc: Fibonacci / golden-angle phyllotaxis ---
+  const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ~137.5 degrees
+  const SEED_COUNT = 340;
+  const discRadius = W * 0.155;
+
+  function drawSeeds(t, dark) {
+    for (let i = 0; i < SEED_COUNT; i++) {
+      const angle = i * GOLDEN_ANGLE;
+      const r = discRadius * Math.sqrt(i / SEED_COUNT);
+      const pulse = 0.92 + 0.08 * Math.sin(t * 0.0015 - r * 0.12);
+      const x = r * Math.cos(angle) * pulse;
+      const y = r * Math.sin(angle) * pulse;
+
+      const seedSize = 1.3 + (r / discRadius) * 1.7;
+      const shade = 0.35 + 0.5 * (i / SEED_COUNT);
+
+      ctx.fillStyle = dark
+        ? `rgba(${40 + shade * 40}, ${22 + shade * 20}, ${8 + shade * 8}, 0.9)`
+        : `rgba(${70 + shade * 40}, ${40 + shade * 20}, ${14 + shade * 8}, 0.95)`;
+      ctx.beginPath();
+      ctx.ellipse(x, y, seedSize, seedSize * 1.3, angle, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = dark ? 'rgba(255,210,140,0.25)' : 'rgba(255,220,160,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(x - seedSize * 0.25, y - seedSize * 0.35, seedSize * 0.35, seedSize * 0.45, angle, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawDiscBase(dark) {
+    const grad = ctx.createRadialGradient(-discRadius * 0.3, -discRadius * 0.3, 0, 0, 0, discRadius * 1.08);
+    if (dark) {
+      grad.addColorStop(0, '#5a3818');
+      grad.addColorStop(0.6, '#3a230f');
+      grad.addColorStop(1, '#24150a');
+    } else {
+      grad.addColorStop(0, '#7c4f2a');
+      grad.addColorStop(0.6, '#5a3818');
+      grad.addColorStop(1, '#3a230f');
+    }
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0, 0, discRadius * 1.08, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawSepals(dark) {
+    const count = 13;
+    const r = discRadius * 1.0;
+    const len = discRadius * 0.55;
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2 + 0.15;
+      ctx.save();
+      ctx.rotate(a);
+      ctx.translate(0, r);
+      ctx.beginPath();
+      ctx.moveTo(-discRadius * 0.13, 0);
+      ctx.quadraticCurveTo(0, len, discRadius * 0.13, 0);
+      ctx.closePath();
+      ctx.fillStyle = dark ? 'rgba(60,90,40,0.85)' : 'rgba(85,120,55,0.9)';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // Neck: a short tapered green cone drawn UNDER the sepals ring, pointing
+  // toward the stem attachment direction, so the head and stem read as one piece.
+  function drawNeck(dark, dirAngle) {
+    ctx.save();
+    ctx.rotate(dirAngle);
+    const w0 = discRadius * 0.34, w1 = discRadius * 0.5;
+    const grad = ctx.createLinearGradient(0, discRadius * 0.5, 0, discRadius * 1.6);
+    if (dark) {
+      grad.addColorStop(0, '#3d6023');
+      grad.addColorStop(1, '#243b16');
+    } else {
+      grad.addColorStop(0, '#4f8a2e');
+      grad.addColorStop(1, '#355c1f');
+    }
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(-w0 / 2, discRadius * 0.55);
+    ctx.quadraticCurveTo(-w1 / 2, discRadius * 1.05, -w1 / 2, discRadius * 1.65);
+    ctx.lineTo(w1 / 2, discRadius * 1.65);
+    ctx.quadraticCurveTo(w1 / 2, discRadius * 1.05, w0 / 2, discRadius * 0.55);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawLeaf(len, width, dark, mirror) {
+    const m = mirror ? -1 : 1;
+    ctx.save();
+    const grad = ctx.createLinearGradient(0, 0, m * width, -len * 0.5);
+    if (dark) {
+      grad.addColorStop(0, 'rgba(40,70,30,0.95)');
+      grad.addColorStop(1, 'rgba(80,130,55,0.95)');
+    } else {
+      grad.addColorStop(0, 'rgba(55,95,40,0.96)');
+      grad.addColorStop(1, 'rgba(105,160,70,0.97)');
+    }
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(m * width * 0.9, -len * 0.15, m * width * 1.05, -len * 0.55, m * width * 0.15, -len);
+    ctx.bezierCurveTo(m * width * 0.02, -len * 0.7, m * width * 0.02, -len * 0.3, 0, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = dark ? 'rgba(200,230,180,0.3)' : 'rgba(230,250,210,0.4)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(0, -len * 0.02);
+    ctx.quadraticCurveTo(m * width * 0.1, -len * 0.5, m * width * 0.16, -len * 0.94);
+    ctx.stroke();
+
+    ctx.strokeStyle = dark ? 'rgba(200,230,180,0.18)' : 'rgba(230,250,210,0.25)';
+    ctx.lineWidth = 0.7;
+    for (let k = 1; k <= 4; k++) {
+      const along = k / 5;
+      const bx = m * width * (0.1 + along * 0.5) * (1 - along * 0.3);
+      const by = -len * along;
+      ctx.beginPath();
+      ctx.moveTo(m * width * 0.08 * along, by);
+      ctx.quadraticCurveTo(bx, by - len * 0.06, bx * 1.4, by - len * 0.02);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = dark ? 'rgba(20,40,15,0.4)' : 'rgba(35,60,20,0.35)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(m * width * 0.9, -len * 0.15, m * width * 1.05, -len * 0.55, m * width * 0.15, -len);
+    ctx.bezierCurveTo(m * width * 0.02, -len * 0.7, m * width * 0.02, -len * 0.3, 0, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  let start = null;
+
+  function frame(ts) {
+    if (!start) start = ts;
+    const t = ts - start;
+    const dark = isDark();
+
+    ctx.clearRect(0, 0, W, H);
+
+    const targetX = pointer.active ? (pointer.x - cx) : 0;
+    const targetY = pointer.active ? (pointer.y - cy) : 0;
+    smooth.x += (targetX - smooth.x) * 0.04;
+    smooth.y += (targetY - smooth.y) * 0.04;
+
+    const windPhase = t * 0.0011;
+    const tiltX = (smooth.x / cx) * 0.35;
+    const tiltY = (smooth.y / cy) * 0.15;
+    const swayAngle = Math.sin(windPhase) * 0.035 + tiltX * 0.5;
+
+    // The point where the stem meets the flower head is derived from the
+    // SAME swayAngle that rotates the head, so they always stay attached.
+    const attachR = discRadius * 1.62;
+    const attachX = cx - attachR * Math.sin(swayAngle);
+    const attachY = cy + attachR * Math.cos(swayAngle);
+
+    // ---------- STEM ----------
+    const stemBaseX = cx;
+    const stemBaseY = H * 0.97;
+    const stemMidX = (stemBaseX + attachX) / 2 + Math.sin(windPhase * 0.8) * 8;
+    const stemMidY = (stemBaseY + attachY) / 2;
+
+    ctx.save();
+    const stemGrad = ctx.createLinearGradient(stemBaseX - 14, 0, stemBaseX + 14, 0);
+    if (dark) {
+      stemGrad.addColorStop(0, '#243b16');
+      stemGrad.addColorStop(0.5, '#3d6023');
+      stemGrad.addColorStop(1, '#243b16');
+    } else {
+      stemGrad.addColorStop(0, '#355c1f');
+      stemGrad.addColorStop(0.5, '#4f8a2e');
+      stemGrad.addColorStop(1, '#355c1f');
+    }
+    ctx.strokeStyle = stemGrad;
+    ctx.lineWidth = W * 0.028;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(stemBaseX, stemBaseY);
+    ctx.quadraticCurveTo(stemMidX, stemMidY, attachX, attachY);
+    ctx.stroke();
+
+    ctx.strokeStyle = dark ? 'rgba(150,200,110,0.25)' : 'rgba(210,240,170,0.4)';
+    ctx.lineWidth = W * 0.006;
+    ctx.beginPath();
+    ctx.moveTo(stemBaseX - W * 0.006, stemBaseY);
+    ctx.quadraticCurveTo(stemMidX - W * 0.006, stemMidY, attachX - W * 0.006, attachY);
+    ctx.stroke();
+    ctx.restore();
+
+    // ---------- LEAVES ----------
+    function stemPointAt(frac) {
+      const p0 = { x: stemBaseX, y: stemBaseY };
+      const p1 = { x: stemMidX, y: stemMidY };
+      const p2 = { x: attachX, y: attachY };
+      const u = 1 - frac;
+      const x = u * u * p0.x + 2 * u * frac * p1.x + frac * frac * p2.x;
+      const y = u * u * p0.y + 2 * u * frac * p1.y + frac * frac * p2.y;
+      const dx = 2 * u * (p1.x - p0.x) + 2 * frac * (p2.x - p1.x);
+      const dy = 2 * u * (p1.y - p0.y) + 2 * frac * (p2.y - p1.y);
+      return { x, y, angle: Math.atan2(dy, dx) };
+    }
+
+    const leafSpecs = [
+      { frac: 0.38, mirror: false, scale: 1.05 },
+      { frac: 0.58, mirror: true, scale: 0.95 },
+      { frac: 0.74, mirror: false, scale: 0.7 }
+    ];
+    leafSpecs.forEach((spec, idx) => {
+      const p = stemPointAt(spec.frac);
+      const leafFlutter = Math.sin(windPhase * 1.4 + idx * 1.3) * 0.08;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.angle + Math.PI / 2 + (spec.mirror ? -0.9 : 0.9) + leafFlutter);
+      drawLeaf(W * 0.24 * spec.scale, W * 0.13 * spec.scale, dark, spec.mirror);
+      ctx.restore();
+    });
+
+    // ---------- FLOWER HEAD (rotates rigidly with the stem's attach angle) ----------
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(swayAngle);
+    ctx.scale(1, 1 + tiltY * 0.04);
+
+    // neck connects seamlessly into the stem since both share swayAngle
+    drawNeck(dark, Math.PI); // points straight "down" in local space (toward attach)
+
+    drawSepals(dark);
+
+    for (let layer = PETAL_LAYERS - 1; layer >= 0; layer--) {
+      const layerScale = 1 - layer * 0.16;
+      const len = petalLen * layerScale;
+      const width = petalWidth * layerScale * 1.1;
+      const baseOffset = discRadius * 0.7 * layerScale;
+      const rotOffset = (layer * Math.PI) / PETALS_PER_LAYER;
+      const windLayerAmp = 0.09 - layer * 0.02;
+
+      for (let i = 0; i < PETALS_PER_LAYER; i++) {
+        const baseAngle = (i / PETALS_PER_LAYER) * Math.PI * 2 + rotOffset;
+        const flutter = Math.sin(windPhase * 1.6 + i * 0.9 + layer) * windLayerAmp;
+        const pointerBend = Math.sin(baseAngle - Math.atan2(smooth.y, smooth.x || 1)) *
+          (Math.min(1, Math.hypot(smooth.x, smooth.y) / (W * 0.35))) * 0.08;
+
+        const angle = baseAngle + flutter + pointerBend;
+
+        ctx.save();
+        ctx.rotate(angle);
+        ctx.translate(0, -baseOffset);
+        drawPetal(len, width, dark, layer * 100 + i);
+        ctx.restore();
+      }
+    }
+
+    drawDiscBase(dark);
+    drawSeeds(t, dark);
+
+    ctx.strokeStyle = dark ? 'rgba(255,214,92,0.15)' : 'rgba(120,70,10,0.15)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, discRadius * 1.08, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
+
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+
+<script>
+(function () {
+  const song = document.getElementById('song');
+  const btn = document.getElementById('soundToggle');
+  let started = false;
+
+  function updateIcon() {
+    btn.innerHTML = (song.paused) ? '&#9835;' : '&#10073;&#10073;';
+  }
+
+  function tryStart() {
+    if (started) return;
+    started = true;
+    song.volume = 0.85;
+    song.play().then(updateIcon).catch(() => { started = false; });
+  }
+
+  ['pointerdown', 'touchstart'].forEach(evt =>
+    window.addEventListener(evt, tryStart, { once: true, passive: true })
+  );
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (song.paused) {
+      song.play().then(updateIcon).catch(() => {});
+    } else {
+      song.pause();
+      updateIcon();
+    }
+    started = true;
+  });
+
+  song.addEventListener('play', updateIcon);
+  song.addEventListener('pause', updateIcon);
+  updateIcon();
+})();
+</script>
+</body>
+</html>
